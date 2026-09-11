@@ -1,0 +1,838 @@
+import { useState, useEffect, useRef } from "react";
+
+// ── Loam design tokens (ported from the app's theme) ─────────────────
+const C = {
+  brown900: "#100900",
+  brown700: "#261700",
+  brown500: "#462B01",
+  brown300: "#867966",
+  brown200: "#B6AFA3",
+  brown100: "#DAD5CC",
+  brown50: "#F3EEE4",
+  white400: "#FAF5EA",
+  white200: "#FFFEFA",
+  green500: "#42480E",
+  green300: "#8C916E",
+  green50: "#ECEDE2",
+  lime500: "#AFB066",
+  lime300: "#CFD0A3",
+  lime100: "#F5F5E1",
+  clay500: "#9E5135",
+  clay300: "#C59786",
+  clay200: "#DCC0B5",
+  clay50: "#F5EDEB",
+};
+
+// Reveal-on-scroll: elements tagged data-reveal fade/rise in when they
+// enter the viewport. Runs once per element, then unobserves.
+function useReveal() {
+  useEffect(() => {
+    const els = document.querySelectorAll("[data-reveal]");
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting) {
+            e.target.classList.add("in-view");
+            io.unobserve(e.target);
+          }
+        });
+      },
+      { threshold: 0.15, rootMargin: "0px 0px -40px 0px" },
+    );
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, []);
+}
+
+// Parallax: containers with class "parallax" hold one child that drifts
+// counter to scroll. The transform goes on the child while the container
+// is measured, so the measurement never feeds back into itself.
+function useParallax() {
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const els = Array.from(document.querySelectorAll(".parallax"));
+    if (!els.length) return;
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const vh = window.innerHeight;
+      els.forEach((el) => {
+        const child = el.firstElementChild;
+        if (!child) return;
+        const speed = parseFloat(el.dataset.speed || "0.15");
+        const rect = el.getBoundingClientRect();
+        const offset = (rect.top + rect.height / 2 - vh / 2) * -speed;
+        child.style.transform = `translateY(${offset.toFixed(1)}px)`;
+      });
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+}
+
+// ── Brand marks (paths extracted from whiteOnBrownLogo.svg / BrownLettermark.svg) ──
+const LOGO_BLOB_PATH =
+  "M206.801 94.5242C203.38 63.373 185.168 43.3924 177.51 35.2248C171.209 28.5051 141.933 -2.71244 100.671 0.188546C81.7906 1.51413 68.6059 9.41155 58.9034 15.2186C51.694 19.537 -1.98839 51.6722 0.0561218 100.805C1.12682 126.603 17.0444 144.555 30.3261 159.539C41.0993 171.689 63.4308 196.88 100.676 201.417C107.727 202.274 134.025 205.098 160.364 189.543C193.525 169.96 210.773 130.672 206.801 94.5242Z";
+const LOGO_DETAIL_PATHS = [
+  "M36.585 95.9763C36.585 95.9816 36.5825 95.9863 36.5781 95.9892C36.1635 96.2709 36.4647 98.2978 36.6189 99.3717C36.6677 99.7118 36.8542 100.021 37.1383 100.214C38.0024 100.802 38.4662 103.213 38.5566 104.255C38.6612 105.487 39.3904 106.764 39.5356 107.871C39.6977 109.09 39.0225 111.076 40.3053 111.697C41.2607 112.16 44.505 112.754 45.6799 112.92C54.2447 114.112 64.3119 113.018 73.0185 112.943C73.8254 112.936 74.5479 113.163 75.2197 113.159C77.6919 113.148 80.1545 113.017 82.6189 112.979C84.2946 112.953 84.7444 115.013 83.2579 115.787C80.8981 117.107 78.2783 116.793 75.8746 117.198C74.7572 117.387 72.7181 118.66 71.3744 119.092C68.9032 119.886 65.6218 120.821 63.0999 121.412C55.8509 123.106 48.2097 121.374 40.878 120.219C38.9036 119.907 37.4004 120.458 36.9057 122.395C36.693 123.226 36.055 124.232 36.1596 125.029C36.244 125.684 38.0839 128.166 38.7018 128.497C40.0285 129.213 43.2188 129.733 44.9034 130.29C44.9472 130.304 45.0086 130.325 45.0852 130.35C48.9971 131.658 49.7135 134.491 47.6466 138.06C46.462 140.106 46.1701 142.466 46.0604 144.828C45.977 146.623 45.9153 148.415 46.1694 150.21C46.3315 151.358 46.5779 153.408 48.0397 153.347C48.6372 153.323 53.5864 150.95 53.8396 150.531C54.0253 150.22 53.9679 149.423 53.9477 149.025C53.6371 142.865 54.3224 139.343 59.4707 135.575C65.2403 131.35 72.0361 131.404 78.518 129.638C80.1351 129.199 82.6266 127.913 84.2538 127.18C85.11 126.795 85.959 126.391 86.8045 125.979C91.4172 123.729 95.7616 126.209 93.4668 130.8C93.0651 131.607 92.0185 132.002 91.2488 132.38C88.7945 133.589 85.9789 134.393 83.4469 135.571C79.5571 137.385 75.9255 139.715 71.853 141.126C70.7327 141.514 69.4886 142.055 69.5143 143.24C69.548 144.966 71.2799 150.916 72.5425 152.02C73.1671 152.564 74.6593 152.76 75.0239 153.134C75.4661 153.59 76.1413 156.444 76.4857 157.271C76.83 158.098 77.8225 160.368 78.7881 160.287C79.2713 160.246 81.8048 158.386 83.1082 157.146C83.7026 156.581 83.7826 155.78 83.5886 154.983C82.7006 151.335 85.2165 147.735 88.7179 146.38C90.8998 145.536 92.9931 144.458 94.8915 143.223C96.7627 142.014 97.7963 142.539 98.2558 144.719C98.7898 147.252 99.5278 149.763 100.05 152.29C100.065 152.363 100.08 152.437 100.095 152.51C101.317 158.571 102.034 165.461 99.2701 170.991C98.2712 172.99 99.535 173.709 101.769 173.691C103.463 173.678 105.168 173.651 106.799 173.524C107.737 173.449 109.233 173.331 109.783 172.511C110.404 171.579 111.589 168.225 112.048 166.979C112.399 166.027 113.25 164.129 113.307 163.224C113.399 161.745 112.426 161.678 111.859 160.675C111.238 159.584 110.961 155.677 110.894 154.245C110.788 151.965 113.569 150.553 115.457 151.836L119.643 154.683C120.593 155.328 121.317 156.261 121.653 157.359C122.794 161.091 123.585 165.077 124.836 168.688C125.303 170.031 126.633 169.517 127.54 168.423L128.898 166.784C130.312 165.078 131.187 162.981 130.101 161.049C129.891 160.677 129.7 160.309 129.586 159.939C128.137 155.199 127.448 150.377 124.459 146.423C123.627 145.323 122.784 144.286 121.903 143.436C119.934 141.54 116.655 140.228 114.331 138.35C113.635 137.788 113.238 136.956 113.084 136.075C112.4 132.181 116.787 129.114 120.388 130.747C123.816 132.301 127.325 133.693 130.814 135.116C133.581 136.244 136.004 138.532 138.522 140.14C139.087 140.501 139.579 140.857 139.859 141.265C142.003 144.398 142.24 148.14 143.533 151.584C144.377 153.833 144.505 154.289 147.017 153.172C148.036 152.719 152.026 149.896 152.064 148.836C152.084 148.275 150.095 146.725 149.572 146.138C148.374 144.792 147.449 143.248 146.676 141.615C145.717 139.586 148.168 137.802 149.967 139.144C151.027 139.934 151.496 140.627 152.874 141.234C154.829 142.099 155.973 142.41 158.069 142.038C158.216 142.012 158.531 141.954 158.947 141.872C162.925 141.098 165.888 136.915 162.337 134.964C160.797 134.116 157.293 134.16 155.362 133.542C152.833 132.732 150.683 130.337 148.333 128.976C144.022 126.481 139.643 126.65 135.039 125.282C132.061 124.397 128.786 122.665 125.883 121.446C123.858 120.596 121.641 120.16 119.821 118.881C119.601 118.727 119.421 118.525 119.275 118.301C118.198 116.645 119.438 114.481 121.409 114.607C127.217 114.981 137.007 115.767 142.635 117.08C146.405 117.958 149.96 117.715 153.519 118.387C157.752 119.187 163.319 121.902 167.708 123.185C168.397 123.388 171.55 124.34 171.972 124.316C172.318 124.298 172.686 123.813 173.021 123.211C173.785 121.839 173.896 120.184 173.61 118.64C173.394 117.478 174.115 116.922 174.763 115.934C174.819 115.848 174.856 115.747 174.868 115.624C174.922 115.08 174.144 114.647 173.436 114.261C172.868 113.951 172.728 113.065 173.363 112.94C174.818 112.653 178.747 114.017 179.74 113.321C180.233 112.977 180.088 111.653 180.05 111.039C179.844 107.502 176.771 106.033 173.229 106.104C169.719 106.175 166.175 106.35 162.765 106.136C151.091 105.399 139.353 102.468 127.382 102.931C117.072 103.329 106.346 103.036 96.0157 102.337C89.6081 101.904 83.0216 100.317 76.6275 99.7398C66.0775 98.7875 55.9327 98.8888 45.3119 97.2781C43.9316 97.0693 37.3581 95.5174 36.5914 95.964C36.5868 95.9667 36.585 95.9711 36.585 95.9763Z",
+  "M113.99 20.5133C108.496 19.6382 101.014 25.989 99.9339 31.2599C98.1709 39.8748 101.858 46.7475 110.528 48.8952C123.95 52.2191 130.022 36.3903 122.669 26.4185C120.958 24.0982 116.878 20.971 113.99 20.5093V20.5133ZM114.781 28.4458C117.295 28.8794 120.091 32.4201 120.259 34.9371C120.372 36.591 118.729 40.5814 116.95 40.8624C115.548 41.0832 113.48 39.5978 112.801 38.4015C112.022 37.0246 111.46 31.9825 111.914 30.5092C112.191 29.614 113.765 28.2732 114.777 28.4458H114.781Z",
+  "M146.826 34.1055C147.396 34.0669 150.493 34.1164 150.835 34.2984C151.354 34.5619 151.403 36.5757 151.548 37.2077C153.627 46.0571 153.069 57.2544 146.72 64.3714C145.752 65.4543 144.337 66.4272 143.487 67.4265C143.365 67.575 143.198 67.4986 143.392 67.8453C154.628 64.9976 164.412 69.7686 175.145 74.7104C177.525 76.0812 178.631 76.0173 180.73 78.1279C181.223 79.6304 180.957 80.1331 179.869 81.4995C167.279 97.2674 129.583 101.739 115.934 86.7612C112.453 82.9464 114.695 82.545 115.987 74.555C116.834 72.5593 119.385 63.6495 120.525 61.2311L122.596 55.9856C124.558 50.7672 125.223 50.6118 127.687 46.5743C128.907 44.5709 132.634 40.4802 134.476 39.1305C137.199 37.1459 143.43 34.3301 146.826 34.1055ZM131.714 77.495C131.4 77.6387 129.852 78.4132 129.875 78.6449L133.606 80.3547C139.776 82.7208 148.201 83.1097 154.83 83.1474C157.95 83.1662 163.151 82.9872 166.099 82.1831C166.364 82.1104 166.442 82.1581 166.55 81.831C162.893 80.3133 159.025 78.9635 155.198 77.9591C150.333 76.6829 144.786 76.2512 139.748 76.054C136.857 75.9495 134.375 76.2695 131.714 77.495ZM143.386 44.8061C142.05 46.5345 140.544 49.2216 139.333 51.1506C136.903 55.0108 134.372 59.1406 132.156 63.1266C131.055 65.1017 128.683 69.1512 128.453 71.2422C128.411 71.6288 128.355 72.0198 128.485 72.3938C134.252 68.5337 138.123 63.4461 140.8 57.1076C142.478 53.1586 143.927 48.5633 143.995 44.2702C143.692 44.3227 143.55 44.5888 143.386 44.8061Z",
+  "M75.1939 60.5554C75.3848 62.1463 77.7701 66.1519 78.5115 67.6792C80.0961 70.9546 82.627 73.5298 85.0899 76.0798C88.2496 79.3518 94.6963 86.8082 98.6038 88.3958C99.3961 88.7166 100.134 88.6397 99.7684 87.5702C99.4661 86.6879 97.8942 84.3985 97.3119 83.4226C95.7941 80.8725 94.0153 78.6567 92.4816 76.2302C90.162 72.5639 89.2178 68.7483 87.735 64.7344C86.6341 61.7598 85.2744 58.8075 84.8226 55.5823C84.3707 52.3571 84.2498 47.8618 84.4217 44.523C84.4344 44.2991 84.2976 43.9816 84.6062 44.0317C85.8313 46.5483 87.33 48.6038 88.3291 51.3009C89.621 54.7968 91.8206 59.0818 92.8866 62.6412C95.5053 71.3977 95.6032 79.3352 101.91 86.4407C102.324 86.9086 104.853 88.9238 105.117 87.5702C105.457 85.8156 106.027 83.065 106.212 81.2769C106.638 77.1426 106.581 76.0683 105.738 71.8872C105.286 69.6379 104.344 66.0059 104.032 63.6162C103.028 60.5554 101.793 57.2111 100.526 54.2365C98.0477 48.4111 95.3965 42.6656 91.5632 37.5861C90.6961 36.2443 88.1815 33.8414 87.456 33.1295C86.6128 32.3006 84.8555 30.7822 82.2536 30.1584C81.2047 30.3029 78.8224 32.1935 78.6028 32.5545C76.96 34.2391 75.0299 35.3322 73.9481 37.1069C68.4416 44.134 67.1028 47.4576 65.3934 56.5916C64.3592 59.6363 63.9996 61.9767 62.0534 64.7344C53.9599 65.5707 51.6472 64.2217 44.3478 66.8653C43.5586 67.1528 36.2496 69.9035 35.0532 72.604C33.8567 75.3044 35.4397 77.9267 35.8884 78.8926C37.6767 82.7194 39.2677 82.4801 42.5706 84.7294C44.2857 85.8991 50.4324 88.0816 52.4816 88.3958C57.9355 89.228 61.6059 89.3951 67.187 89.9365C71.2631 90.3309 77.2953 91.8425 81.3619 92.3906L92.8866 93.652C94.8945 89.0517 92.3389 89.0517 91.335 87.9974C87.7754 85.9848 84.2895 84.8271 80.6797 83.7145C78.6687 82.8656 75.6903 82.0523 73.5393 81.2769C71.7255 80.6219 69.9279 79.7627 68.1524 79.0843C66.5996 78.4893 63.7207 78.1268 62.0534 77.5987C58.1523 76.3621 55.6088 76.2503 51.7331 75.495C51.4308 75.4348 51.1095 75.5651 50.8867 75.1975C57.1838 72.9215 64.0997 73.6014 69.1563 69.6919C72.1771 66.03 72.8552 60.0574 74.7612 55.5589C74.863 55.3182 74.8566 54.9706 75.1875 54.9205C75.3403 56.6985 74.9807 58.8275 75.1875 60.5588L75.1939 60.5554Z",
+];
+const LETTERMARK_PATHS = [
+  "M133.842 74.6978C130.232 75.3069 126.888 72.6597 126.651 69.0062L124.208 31.2255C123.953 27.2822 127.415 24.117 131.32 24.7239L139.821 26.0452C140.552 26.1588 141.091 26.7881 141.091 27.5278C141.091 28.9809 143.14 29.7277 144.285 28.8326C145.201 28.1165 146.203 27.4864 147.291 26.9425C149.89 25.676 152.856 25.0427 156.189 25.0427C159.922 25.0427 163.885 24.7761 166.551 26.2426C170.442 28.3303 175.459 29.5191 179.365 27.4584C179.438 27.4196 179.512 27.381 179.587 27.3424C183.147 25.5038 185.579 25.0127 189.585 25.0427C195.893 25.0901 200.206 26.4999 204.583 31.042C209.427 36.067 208.536 41.2732 209.783 48.1399C211.023 54.9691 210.672 64.4388 210.26 70.3479C210.042 73.4823 207.373 75.8365 204.231 75.8365C200.096 75.8365 197.006 71.8304 197.766 67.7662C198.471 63.9903 199.105 59.3244 199.105 54.7508C199.105 50.457 201.272 42.0655 195.885 38.4447C192.73 36.3247 189.619 36.8413 186.286 36.8413C183.019 36.8413 180.386 38.0411 178.387 40.4408C176.454 42.7739 176.093 46.9055 176.954 50.309C178.549 56.6124 177.712 64.5042 176.781 69.8315C176.196 73.1804 172.835 75.1183 169.554 74.2296L163.755 72.6594C160.746 71.8444 158.816 68.914 159.255 65.8272L161.589 49.4397C161.589 45.3736 162.423 40.5778 160.823 38.4447C159.224 36.245 155.123 36.8413 151.79 36.8413C148.59 36.8413 145.991 38.0411 143.991 40.4408C142.181 42.6253 139.303 49.5827 138.944 53.9072C138.897 54.466 138.983 55.0246 139.134 55.5647L142.148 66.3778C143.133 69.9097 140.842 73.5169 137.227 74.1268L133.842 74.6978Z",
+  "M91.2265 78.4211C85.1968 78.4211 81.4829 74.502 78.0764 69.2374C74.2689 63.0728 72.2768 53.8027 78.0764 49.3739C83.3187 45.3485 91.4976 44.8673 98.8441 45.897C102.978 46.4765 108.408 43.4884 107.745 39.3667C107.573 38.2948 107.14 37.3606 106.257 36.6913C102.985 34.1203 97.9047 35.3437 94.7551 38.7131C92.5888 41.0306 89.7623 43.3098 86.611 42.9445L81.4802 42.3499C78.0981 41.9579 75.5602 38.7942 77.1296 35.7728C83.7435 23.039 106.042 20.9997 116.592 29.7364C120.924 33.2026 121.056 38.8077 121.056 45.3402C121.056 48.6263 118.915 61.6176 122.955 63.638C124.249 64.2848 125.301 65.624 124.718 66.9476L122.518 71.9435C121.629 73.9621 119.631 75.3064 117.425 75.3012C117.016 75.3003 116.623 75.2934 116.246 75.2763C111.542 75.0633 104.684 73.6657 100.52 75.8638C97.5286 77.4429 94.2665 78.4211 91.2265 78.4211ZM94.0318 66.1476C97.7224 66.1476 101.15 64.3996 103.487 61.7789C105.683 59.3161 103.777 55.8247 100.516 55.324C95.0779 54.4893 88.7596 54.8493 88.7596 60.9384C88.7596 64.7487 90.6871 66.1476 94.0318 66.1476Z",
+  "M48.3899 77.0363C37.7912 77.0363 30.1431 72.651 25.1927 64.5378C17.8444 52.1507 22.206 35.2048 34.8915 28.3422C47.2194 21.673 64.7746 26.5266 71.4871 37.5411C78.1996 48.5556 68.2258 77.0363 48.3899 77.0363ZM45.8007 64.5378C58.8122 64.5378 65.6586 44.7246 54.4892 38.7409C48.7542 35.3424 40.973 37.5382 37.7912 43.3404C32.879 52.0089 35.0703 64.5378 45.8007 64.5378Z",
+  "M5.61459 77.1932C2.91531 76.5031 1.24653 73.9286 1.43543 71.149C2.25884 59.0329 4.20339 26.073 2.71293 3.84533C2.47062 0.231752 9.45534 1.4062 14.1976 2.61053C16.7635 3.26217 18.4466 5.61667 18.4364 8.26399C18.3884 20.6596 18.1276 56.1384 16.7112 75.8365C16.4603 79.3262 10.1357 78.349 5.61459 77.1932Z",
+];
+
+// Full logomark: brown blob with cream root-and-leaf detail
+function Logomark({ size = 44 }) {
+  return (
+    <svg
+      viewBox="0 0 208 203"
+      width={size}
+      height={size * (203 / 208)}
+      aria-hidden="true"
+    >
+      <path d={LOGO_BLOB_PATH} fill={C.brown500} />
+      {LOGO_DETAIL_PATHS.map((d, i) => (
+        <path key={i} d={d} fill={C.white400} />
+      ))}
+    </svg>
+  );
+}
+
+// Outline treatment of the logomark (per brand's logomark-outline asset):
+// blob stroked, detail filled in the same single color. Used decoratively.
+function LogomarkOutline({
+  size = 260,
+  color = C.lime300,
+  opacity = 1,
+  style,
+}) {
+  return (
+    <svg
+      viewBox="0 0 208 203"
+      width={size}
+      height={size * (203 / 208)}
+      style={{ opacity, ...style }}
+      aria-hidden="true"
+    >
+      <path d={LOGO_BLOB_PATH} fill="none" stroke={color} strokeWidth="4" />
+      {LOGO_DETAIL_PATHS.map((d, i) => (
+        <path key={i} d={d} fill={color} />
+      ))}
+    </svg>
+  );
+}
+
+// "loam" lettermark from BrownLettermark.svg
+function Lettermark({ height = 26, color = C.brown500 }) {
+  return (
+    <svg
+      viewBox="0 0 213 80"
+      height={height}
+      width={height * (213 / 80)}
+      aria-hidden="true"
+    >
+      {LETTERMARK_PATHS.map((d, i) => (
+        <path key={i} d={d} fill={color} stroke={color} strokeWidth="2.84233" />
+      ))}
+    </svg>
+  );
+}
+
+// Blob path used for swatches/branch buttons in the app
+const BLOB =
+  "M27.1704 2.56349C19.203 -2.03646 6.99049 -0.475621 2.39054 7.49173C-2.20941 15.4591 -0.0640839 26.6592 7.90326 31.2592C15.8706 35.8591 25.8445 32.3309 30.4444 24.3636C35.0444 16.3962 35.1377 7.16344 27.1704 2.56349Z";
+
+// Category icons ported from PostCard
+const ICON_READING =
+  "M18.0571 32.0103C16.7438 30.9706 15.3212 30.1635 13.789 29.589C12.2569 29.0144 10.6701 28.7272 9.02853 28.7272C7.87945 28.7272 6.75088 28.8776 5.64283 29.1786C4.53479 29.4795 3.47462 29.9036 2.46233 30.4508C1.88778 30.7517 1.33376 30.7381 0.800257 30.4097C0.266752 30.0814 0 29.6027 0 28.9734V9.19269C0 8.89174 0.0752378 8.60447 0.225713 8.33088C0.376189 8.05728 0.601902 7.85209 0.902854 7.71529C2.16138 7.05867 3.47462 6.56621 4.84258 6.2379C6.21054 5.90959 7.60586 5.74543 9.02853 5.74543C10.6154 5.74543 12.168 5.95063 13.6864 6.36101C15.2049 6.7714 16.6618 7.38698 18.0571 8.20776V28.0705C19.4524 27.195 20.9161 26.5384 22.4482 26.1007C23.9803 25.6629 25.5261 25.4441 27.0856 25.4441C28.0705 25.4441 29.035 25.5261 29.9788 25.6903C30.9227 25.8544 31.8735 26.1007 32.831 26.429V6.73036C33.2414 6.86716 33.645 7.01079 34.0417 7.16127C34.4384 7.31175 34.8283 7.49642 35.2113 7.71529C35.5122 7.85209 35.738 8.05728 35.8884 8.33088C36.0389 8.60447 36.1141 8.89174 36.1141 9.19269V28.9734C36.1141 29.6027 35.8474 30.0814 35.3139 30.4097C34.7804 30.7381 34.2264 30.7517 33.6518 30.4508C32.6395 29.9036 31.5794 29.4795 30.4713 29.1786C29.3633 28.8776 28.2347 28.7272 27.0856 28.7272C25.4441 28.7272 23.8572 29.0144 22.3251 29.589C20.793 30.1635 19.3703 30.9706 18.0571 32.0103Z";
+const ICON_LISTENING =
+  "M6.42697 28.2787C4.65955 28.2787 3.14654 27.6633 1.88792 26.4327C0.629307 25.202 0 23.7226 0 21.9945C0 20.2664 0.629307 18.787 1.88792 17.5563C3.14654 16.3257 4.65955 15.7104 6.42697 15.7104C7.04288 15.7104 7.61194 15.7824 8.13413 15.9264C8.65632 16.0704 9.15843 16.2864 9.64045 16.5744V3.14207L28.9213 0V18.8524C28.9213 20.5806 28.292 22.06 27.0334 23.2906C25.7748 24.5213 24.2618 25.1366 22.4944 25.1366C20.727 25.1366 19.2139 24.5213 17.9553 23.2906C16.6967 22.06 16.0674 20.5806 16.0674 18.8524C16.0674 17.1243 16.6967 15.6449 17.9553 14.4143C19.2139 13.1836 20.727 12.5683 22.4944 12.5683C23.1103 12.5683 23.6794 12.6403 24.2015 12.7843C24.7237 12.9283 25.2258 13.1443 25.7079 13.4324V6.95184L12.8539 9.42622V21.9945C12.8539 23.7226 12.2246 25.202 10.966 26.4327C9.7074 27.6633 8.19438 28.2787 6.42697 28.2787Z";
+const ICON_WATCHING =
+  "M3.58333 0L7.16667 7.16667H12.5417L8.95833 0H12.5417L16.125 7.16667H21.5L17.9167 0H21.5L25.0833 7.16667H30.4583L26.875 0H32.25C33.2354 0 34.079 0.350868 34.7807 1.0526C35.4825 1.75434 35.8333 2.59792 35.8333 3.58333V25.0833C35.8333 26.0688 35.4825 26.9123 34.7807 27.6141C34.079 28.3158 33.2354 28.6667 32.25 28.6667H3.58333C2.59792 28.6667 1.75434 28.3158 1.0526 27.6141C0.350868 26.9123 0 26.0688 0 25.0833V3.58333C0 2.59792 0.350868 1.75434 1.0526 1.0526C1.75434 0.350868 2.59792 0 3.58333 0ZM3.58333 10.75V25.0833H32.25V10.75H3.58333Z";
+
+function Blob({ fill, size = 34, stroke, flip = false, children, style }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        position: "relative",
+        width: size,
+        height: size,
+        transform: flip ? "scaleX(-1)" : "none",
+        ...style,
+      }}
+    >
+      <svg
+        viewBox="-2 -2 38 38"
+        width={size}
+        height={size}
+        style={{ position: "absolute", inset: 0 }}
+        aria-hidden="true"
+      >
+        <path d={BLOB} fill={fill} stroke={stroke || "none"} strokeWidth="2" />
+      </svg>
+      <span
+        style={{
+          position: "relative",
+          transform: flip ? "scaleX(-1)" : "none",
+          lineHeight: 1,
+        }}
+      >
+        {children}
+      </span>
+    </span>
+  );
+}
+
+// The reaction chip style from the app: asymmetric border-radius blob
+function ReactionChip({ emoji, bg, delay = 0 }) {
+  return (
+    <span
+      className="reaction-chip"
+      style={{
+        background: bg,
+        animationDelay: `${delay}ms`,
+      }}
+    >
+      {emoji}
+    </span>
+  );
+}
+
+function CategoryBadge({ path, viewBox, bg, fg }) {
+  return (
+    <span
+      style={{
+        width: 44,
+        height: 44,
+        borderRadius: "25px 22px 25px 22px",
+        background: bg,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        boxShadow: "0 2px 8px rgba(16,9,0,0.10)",
+      }}
+    >
+      <svg width="20" height="20" viewBox={viewBox} aria-hidden="true">
+        <path d={path} fill={fg} />
+      </svg>
+    </span>
+  );
+}
+
+// Mock post card that visibly "composts" — the 72-hour story told live
+function MockPost() {
+  const [hours, setHours] = useState(3);
+  useEffect(() => {
+    const t = setInterval(() => setHours((h) => (h >= 71 ? 3 : h + 1)), 90);
+    return () => clearInterval(t);
+  }, []);
+  const life = 1 - hours / 72; // 1 fresh → 0 composted
+
+  return (
+    <div className="mock-post" style={{ opacity: 0.35 + life * 0.65 }}>
+      <div className="mock-post-head">
+        <Blob fill={C.lime300} size={30}>
+          <span style={{ fontSize: 13 }}>🌱</span>
+        </Blob>
+        <span className="mock-post-user">@wren</span>
+        <span className="mock-post-life">{72 - hours}h left</span>
+      </div>
+      <div className="mock-post-img" aria-hidden="true">
+        <svg viewBox="0 0 200 200" width="100%" height="100%">
+          <rect width="200" height="200" fill={C.green50} />
+          <circle cx="150" cy="48" r="22" fill={C.lime300} />
+          <path
+            d="M0 150 Q 50 105 100 140 T 200 128 L 200 200 L 0 200 Z"
+            fill={C.green300}
+          />
+          <path
+            d="M0 170 Q 60 140 120 165 T 200 158 L 200 200 L 0 200 Z"
+            fill={C.green500}
+          />
+        </svg>
+        <span
+          style={{
+            position: "absolute",
+            top: -8,
+            right: -8,
+          }}
+        >
+          <CategoryBadge
+            path={ICON_LISTENING}
+            viewBox="0 0 29 29"
+            bg={C.lime300}
+            fg={C.green500}
+          />
+        </span>
+        <div className="mock-post-reactions">
+          <ReactionChip emoji="🌻" bg={C.lime300} delay={0} />
+          <ReactionChip emoji="🥹" bg={C.lime300} delay={120} />
+          <ReactionChip emoji="🫶" bg={C.lime300} delay={240} />
+        </div>
+      </div>
+      <p className="mock-post-title">morning on the ridge</p>
+      <p className="mock-post-caption">no signal up here. exactly the point.</p>
+      <div className="mock-post-meter" aria-hidden="true">
+        <span style={{ width: `${life * 100}%` }} />
+      </div>
+    </div>
+  );
+}
+
+const PILLARS = [
+  {
+    n: "150",
+    label: "buds, max",
+    color: C.clay500,
+    tint: C.clay50,
+    body: "A hard connection limit, so your feed is filled with people you know — not a crowd you're trying to impress. Loam isn't for building an audience or chasing virality. It's strictly for staying connected with you and yours.",
+  },
+  {
+    n: "0",
+    label: "counts, anywhere",
+    color: C.green500,
+    tint: C.green50,
+    body: "Like, follower, and comment counts aren't displayed. React with emojis instead Metrics like views, likes, or follower counts make us think about how what we share performs, rather than what really matters: which is what do I want to share? and who do I want to share it with?  no tallies, no scoreboard, no more obsessing over numbers.",
+  },
+  {
+    n: "0",
+    label: "ads, ever",
+    color: C.brown500,
+    tint: C.brown50,
+    body: "No advertisers, no data brokers, no algorithm deciding what you see. Loam runs on community donations, so the only thing we optimize for is you closing the app happy.",
+  },
+];
+
+const FEATURES = [
+  {
+    kicker: "profiles",
+    title: "A profile that reflects you now",
+    body: "The song you've had on repeat, the show you're bingeing, that thought you had in the shower. Loam profiles are designed to be updated constantly — highlight your current interests without the weight of your digital history holding you back.",
+    tint: C.lime100,
+    accent: C.green500,
+  },
+  {
+    kicker: "feed",
+    title: "Chronological, start to finish",
+    body: "Algorithms are designed to hijack your focus, showing you posts based on what keeps you scrolling — not who matters most. On Loam, your feed is simply your buds' most recent posts, in order, until you hit \u201Call caught up!\u201D",
+    tint: C.clay50,
+    accent: C.clay500,
+  },
+  {
+    kicker: "posts",
+    title: "72 hours, then compost",
+    body: "Every post decomposes after three days. Nothing to curate, no permanent record to perform for. Like good soil, what breaks down feeds what grows next.",
+    tint: C.green50,
+    accent: C.green500,
+  },
+  {
+    kicker: "in real life",
+    title: "Tap to connect",
+    body: "Our NFC-fitted carabiners link to their owner's profile, so meeting someone out in the real world becomes a bud request with a single tap. No usernames shouted across the room.",
+    tint: C.brown50,
+    accent: C.brown500,
+  },
+];
+
+const SHARES = [
+  {
+    icon: ICON_LISTENING,
+    viewBox: "0 0 29 29",
+    name: "listening",
+    example: "the record you can't turn off",
+    bg: C.lime300,
+    fg: C.green500,
+  },
+  {
+    icon: ICON_WATCHING,
+    viewBox: "0 0 36 29",
+    name: "watching",
+    example: "the show you'd defend in court",
+    bg: C.clay200,
+    fg: C.clay500,
+  },
+  {
+    icon: ICON_READING,
+    viewBox: "0 0 37 33",
+    name: "reading",
+    example: "the book living in your bag",
+    bg: C.brown100,
+    fg: C.brown500,
+  },
+];
+
+export default function LoamLanding() {
+  const [scrolled, setScrolled] = useState(false);
+  useReveal();
+  useParallax();
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 24);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  return (
+    <div className="loam-root">
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,700;12..96,800&family=Host+Grotesk:wght@400;500;700&display=swap');
+
+        .loam-root {
+          --brown-900: ${C.brown900};
+          --brown-500: ${C.brown500};
+          --brown-300: ${C.brown300};
+          --brown-100: ${C.brown100};
+          --brown-50: ${C.brown50};
+          font-family: 'Host Grotesk', sans-serif;
+          background: var(--brown-50);
+          color: var(--brown-500);
+          min-height: 100vh;
+          overflow-x: hidden;
+        }
+        .loam-root *, .loam-root *::before, .loam-root *::after { box-sizing: border-box; margin: 0; }
+
+        /* subtle paper grain, like the app's texture overlay */
+        .loam-root::before {
+          content: "";
+          position: fixed; inset: 0; pointer-events: none; z-index: 0;
+          background-image: radial-gradient(${C.brown200} 0.5px, transparent 0.5px);
+          background-size: 22px 22px;
+          opacity: 0.18;
+        }
+        .layer { position: relative; z-index: 1; }
+
+        /* ── Nav ─────────────────────────────── */
+        .nav {
+          position: sticky; top: 0; z-index: 40;
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 18px clamp(20px, 5vw, 56px);
+          transition: background 0.3s ease, box-shadow 0.3s ease;
+        }
+        .nav.scrolled {
+          background: ${C.white200}ee;
+          backdrop-filter: blur(8px);
+          box-shadow: 0 1px 0 ${C.brown100};
+        }
+        .lockup { display: inline-flex; align-items: center; gap: 10px; }
+        .wordmark {
+          font-family: 'Bricolage Grotesque', sans-serif;
+          font-weight: 800; font-size: 28px; letter-spacing: -0.03em;
+          color: var(--brown-500); text-decoration: none;
+        }
+        .nav-cta {
+          font-family: 'Host Grotesk', sans-serif; font-weight: 700; font-size: 14px;
+          background: var(--brown-500); color: ${C.white200};
+          padding: 10px 22px; border-radius: 44px; border: none; cursor: pointer;
+          transition: transform 0.15s ease;
+        }
+        .nav-cta:hover { transform: scale(1.04); }
+        .nav-cta:focus-visible, .btn:focus-visible { outline: 3px solid ${C.lime500}; outline-offset: 2px; }
+
+        /* ── Hero ─────────────────────────────── */
+        .hero {
+          position: relative;
+          display: grid; grid-template-columns: 1.1fr 0.9fr; gap: clamp(24px, 5vw, 64px);
+          align-items: center;
+          padding: clamp(40px, 8vh, 96px) clamp(20px, 5vw, 56px) clamp(48px, 9vh, 110px);
+          max-width: 1200px; margin: 0 auto;
+        }
+        .hero h1 {
+          font-family: 'Bricolage Grotesque', sans-serif;
+          font-weight: 800;
+          font-size: clamp(44px, 7.5vw, 92px);
+          line-height: 0.98; letter-spacing: -0.035em;
+          color: var(--brown-900);
+        }
+        .hero h1 .soil { color: ${C.green500}; }
+        .hero p.lede {
+          margin-top: 24px; font-size: clamp(16px, 1.6vw, 20px); line-height: 1.55;
+          max-width: 46ch; color: var(--brown-500);
+        }
+        .hero-ctas { margin-top: 36px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+        .btn {
+          font-family: 'Host Grotesk', sans-serif; font-weight: 700; font-size: 15px;
+          padding: 15px 30px; border-radius: 44px; cursor: pointer; border: none;
+          transition: transform 0.15s ease;
+        }
+        .btn:hover { transform: scale(1.04); }
+        .btn-primary { background: var(--brown-500); color: ${C.white200}; }
+        .btn-ghost { background: transparent; color: var(--brown-500); border: 2px solid var(--brown-500); }
+        .hero-note { font-size: 13px; color: var(--brown-300); margin-top: 14px; }
+        .eyebrow {
+          font-size: 13px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+          color: ${C.clay500}; margin-bottom: 18px;
+        }
+
+        /* ── Quote band ──────────────────────── */
+        .quote-band {
+          position: relative; overflow: hidden;
+          background: ${C.green500};
+          padding: clamp(56px, 10vh, 110px) clamp(20px, 5vw, 56px);
+          text-align: center;
+        }
+        .quote-band p {
+          font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800;
+          font-size: clamp(26px, 4.2vw, 48px); letter-spacing: -0.03em; line-height: 1.15;
+          color: ${C.lime100}; max-width: 24ch; margin: 0 auto;
+        }
+        .quote-band p span { color: ${C.lime300}; }
+
+        /* ── Features ────────────────────────── */
+        .features {
+          max-width: 1200px; margin: 0 auto;
+          padding: clamp(48px, 8vh, 96px) clamp(20px, 5vw, 56px);
+          display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px;
+        }
+        .feature { border-radius: 22px; padding: clamp(24px, 3vw, 40px); }
+        .feature h3 {
+          font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800;
+          font-size: clamp(21px, 2.6vw, 30px); letter-spacing: -0.02em;
+          color: var(--brown-900); margin-top: 10px;
+        }
+        .feature p { font-size: 14.5px; line-height: 1.65; color: var(--brown-500); margin-top: 12px; max-width: 52ch; }
+
+        /* ── Mock post ────────────────────────── */
+        .hero-visual { display: flex; justify-content: center; }
+        .mock-post {
+          width: min(330px, 100%);
+          background: ${C.lime100};
+          border-radius: 22px;
+          padding: 20px;
+          transform: rotate(2.5deg);
+          box-shadow: 0 24px 48px -20px rgba(16,9,0,0.25);
+          transition: opacity 0.4s linear;
+        }
+        .mock-post-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+        .mock-post-user { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 13px; flex: 1; }
+        .mock-post-life { font-size: 11px; color: ${C.green500}; background: ${C.lime300}; padding: 3px 10px; border-radius: 20px; font-weight: 700; }
+        .mock-post-img { position: relative; border-radius: 10px; }
+        .mock-post-img svg { border-radius: 10px; display: block; }
+        .mock-post-reactions { position: absolute; bottom: -16px; left: 10px; display: flex; }
+        .reaction-chip {
+          width: 36px; height: 36px;
+          border-radius: 25px 22px 25px 22px;
+          display: inline-flex; align-items: center; justify-content: center;
+          font-size: 19px; margin-left: -8px;
+          filter: drop-shadow(-1px 0 0.9px rgba(0,0,0,0.25));
+          animation: chip-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+        }
+        .reaction-chip:first-child { margin-left: 0; }
+        @keyframes chip-pop { from { transform: scale(0); } to { transform: scale(1); } }
+        .mock-post-title { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 17px; margin-top: 26px; color: var(--brown-500); }
+        .mock-post-caption { font-size: 13px; color: var(--brown-300); margin-top: 4px; }
+        .mock-post-meter { margin-top: 14px; height: 4px; background: ${C.lime300}; border-radius: 2px; overflow: hidden; }
+        .mock-post-meter span { display: block; height: 100%; background: ${C.green500}; border-radius: 2px; transition: width 0.15s linear; }
+
+        /* ── Pillars ─────────────────────────── */
+        .pillars {
+          max-width: 1200px; margin: 0 auto;
+          padding: 0 clamp(20px, 5vw, 56px) clamp(56px, 9vh, 120px);
+          display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;
+        }
+        .pillar {
+          border-radius: 22px; padding: clamp(24px, 3vw, 36px);
+          display: flex; flex-direction: column; gap: 12px;
+        }
+        .pillar-num {
+          font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800;
+          font-size: clamp(56px, 6vw, 84px); line-height: 1; letter-spacing: -0.04em;
+        }
+        .pillar-label { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 17px; color: var(--brown-900); }
+        .pillar-body { font-size: 14.5px; line-height: 1.6; color: var(--brown-500); }
+
+        /* ── Shares ──────────────────────────── */
+        .shares {
+          background: ${C.white400};
+          border-top: 1px solid ${C.brown100};
+          border-bottom: 1px solid ${C.brown100};
+        }
+        .shares-inner {
+          max-width: 1200px; margin: 0 auto;
+          padding: clamp(56px, 9vh, 110px) clamp(20px, 5vw, 56px);
+        }
+        .kicker {
+          font-size: 13px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+          color: ${C.green500};
+        }
+        .shares h2, .join h2 {
+          font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800;
+          font-size: clamp(30px, 4.5vw, 52px); letter-spacing: -0.03em; line-height: 1.05;
+          color: var(--brown-900); margin-top: 12px; max-width: 22ch;
+        }
+        .share-rows { margin-top: 44px; display: flex; flex-direction: column; }
+        .share-row {
+          display: flex; align-items: center; gap: 20px;
+          padding: 22px 4px; border-top: 1px solid ${C.brown100};
+        }
+        .share-row:last-child { border-bottom: 1px solid ${C.brown100}; }
+        .share-name { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: clamp(20px, 2.6vw, 28px); color: var(--brown-900); width: 9ch; }
+        .share-example { font-size: 15px; color: var(--brown-300); flex: 1; }
+        .shares-foot { margin-top: 28px; font-size: 15px; color: var(--brown-500); max-width: 54ch; line-height: 1.6; }
+
+        /* ── Join ────────────────────────────── */
+        .join { text-align: center; padding: clamp(64px, 12vh, 140px) clamp(20px, 5vw, 56px); }
+        .join h2 { margin: 16px auto 0; }
+        .join .lede { margin: 20px auto 0; max-width: 46ch; font-size: 17px; line-height: 1.6; color: var(--brown-500); }
+        .join-blobs { display: flex; justify-content: center; gap: 6px; }
+        .join .hero-ctas { justify-content: center; }
+
+        /* ── Footer ──────────────────────────── */
+        .footer {
+          border-top: 1px solid ${C.brown100};
+          padding: 28px clamp(20px, 5vw, 56px);
+          display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+          font-size: 13px; color: var(--brown-300);
+        }
+        .footer a { color: var(--brown-300); text-decoration: underline; text-underline-offset: 3px; }
+        .footer a:hover { color: var(--brown-500); }
+
+
+        /* ── Motion (only when the user hasn't asked for less) ── */
+        @media (prefers-reduced-motion: no-preference) {
+          [data-reveal] {
+            opacity: 0;
+            transform: translateY(26px);
+            transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+          }
+          [data-reveal].in-view { opacity: 1; transform: none; }
+
+          .hero-copy > * {
+            opacity: 0;
+            animation: rise-in 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+          }
+          .hero-copy > *:nth-child(1) { animation-delay: 0.05s; }
+          .hero-copy > *:nth-child(2) { animation-delay: 0.14s; }
+          .hero-copy > *:nth-child(3) { animation-delay: 0.26s; }
+          .hero-copy > *:nth-child(4) { animation-delay: 0.38s; }
+          .hero-copy > *:nth-child(5) { animation-delay: 0.48s; }
+
+          .hero-visual {
+            opacity: 0;
+            animation: card-in 0.9s 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+          }
+          @keyframes rise-in {
+            from { opacity: 0; transform: translateY(24px); }
+            to { opacity: 1; transform: none; }
+          }
+          @keyframes card-in {
+            from { opacity: 0; transform: translateY(44px) rotate(5deg) scale(0.96); }
+            to { opacity: 1; transform: none; }
+          }
+          .parallax > * { will-change: transform; }
+        }
+
+        @media (max-width: 860px) {
+          .hero { grid-template-columns: 1fr; }
+          .hero-visual { order: -1; }
+          .mock-post { transform: rotate(1.5deg); }
+          .pillars { grid-template-columns: 1fr; }
+          .features { grid-template-columns: 1fr; }
+          .share-row { flex-wrap: wrap; }
+          .share-name { width: auto; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .loam-root * { animation: none !important; transition: none !important; }
+        }
+      `}</style>
+
+      <div className="layer">
+        {/* Nav */}
+        <nav className={`nav ${scrolled ? "scrolled" : ""}`}>
+          <a className="wordmark lockup" href="#top" aria-label="Loam home">
+            <Logomark size={34} />
+            <Lettermark height={22} />
+          </a>
+          <button className="nav-cta">Join Loam</button>
+        </nav>
+
+        {/* Hero */}
+        <header className="hero" id="top">
+          <div
+            className="parallax"
+            data-speed="0.22"
+            style={{
+              position: "absolute",
+              top: "-60px",
+              right: "-120px",
+              pointerEvents: "none",
+            }}
+            aria-hidden="true"
+          >
+            <LogomarkOutline size={420} color={C.lime300} opacity={0.35} />
+          </div>
+          <div className="hero-copy">
+            <p className="eyebrow">Social media as it was meant to be.</p>
+            <h1>
+              Where the
+              <br />
+              scroll <span className="soil">ends.</span>
+            </h1>
+            <p className="lede">
+              Meaningful connection got sacrificed for design meant to capture
+              your attention. Loam is the opposite: a platform that ditches
+              doomscrolling for an environment built for the people who actually
+              matter.
+            </p>
+            <div className="hero-ctas">
+              <button className="btn btn-primary">Create account</button>
+              <button className="btn btn-ghost">See how it works</button>
+            </div>
+            <p className="hero-note">
+              Runs on community donations. No ads, ever.
+            </p>
+          </div>
+          <div className="hero-visual" aria-hidden="true">
+            <MockPost />
+          </div>
+        </header>
+
+        {/* Pillars */}
+        <section className="pillars" aria-label="What makes Loam different">
+          {PILLARS.map((p, i) => (
+            <article
+              key={p.label}
+              className="pillar"
+              data-reveal
+              style={{ background: p.tint, transitionDelay: `${i * 90}ms` }}
+            >
+              <div className="pillar-num" style={{ color: p.color }}>
+                {p.n}
+              </div>
+              <div className="pillar-label">{p.label}</div>
+              <p className="pillar-body">{p.body}</p>
+            </article>
+          ))}
+        </section>
+
+        {/* Shares */}
+        <section className="shares">
+          <div className="shares-inner">
+            <div className="kicker" data-reveal>
+              what you plant
+            </div>
+            <h2 data-reveal style={{ transitionDelay: "80ms" }}>
+              Share what you're actually into.
+            </h2>
+            <div className="share-rows">
+              {SHARES.map((s, i) => (
+                <div
+                  className="share-row"
+                  key={s.name}
+                  data-reveal
+                  style={{ transitionDelay: `${120 + i * 90}ms` }}
+                >
+                  <CategoryBadge
+                    path={s.icon}
+                    viewBox={s.viewBox}
+                    bg={s.bg}
+                    fg={s.fg}
+                  />
+                  <span className="share-name">{s.name}</span>
+                  <span className="share-example">{s.example}</span>
+                </div>
+              ))}
+            </div>
+            <p
+              className="shares-foot"
+              data-reveal
+              style={{ transitionDelay: "160ms" }}
+            >
+              Search any song, show, or book and post it straight to your buds —
+              plus photos and plain words when that's the mood. Group people
+              into branches: the roommates, the hometown crew, the book club.
+            </p>
+          </div>
+        </section>
+
+        {/* Statement band */}
+        <section className="quote-band" aria-label="Our philosophy">
+          <div
+            className="parallax"
+            data-speed="0.12"
+            style={{
+              position: "absolute",
+              bottom: "-90px",
+              left: "-70px",
+              pointerEvents: "none",
+            }}
+            aria-hidden="true"
+          >
+            <LogomarkOutline size={300} color={C.lime300} opacity={0.16} />
+          </div>
+          <p data-reveal>
+            We don't want your attention.
+            <br />
+            <span>We want your people to have it.</span>
+          </p>
+        </section>
+
+        {/* Features */}
+        <section className="features" aria-label="How Loam works">
+          {FEATURES.map((f, i) => (
+            <article
+              key={f.title}
+              className="feature"
+              data-reveal
+              style={{
+                background: f.tint,
+                transitionDelay: `${(i % 2) * 90}ms`,
+              }}
+            >
+              <div className="kicker" style={{ color: f.accent }}>
+                {f.kicker}
+              </div>
+              <h3>{f.title}</h3>
+              <p>{f.body}</p>
+            </article>
+          ))}
+        </section>
+
+        {/* Join */}
+        <section className="join">
+          <div className="join-blobs" aria-hidden="true" data-reveal>
+            <Logomark size={56} />
+          </div>
+          <h2 data-reveal style={{ transitionDelay: "70ms" }}>
+            Good soil grows good things.
+          </h2>
+          <p className="lede" data-reveal style={{ transitionDelay: "140ms" }}>
+            Bring your 150. Post like nobody's counting — because here, nobody
+            is. No metrics, no algorithm, no audience. Just your people.
+          </p>
+          <div className="hero-ctas">
+            <button className="btn btn-primary">Join Loam</button>
+          </div>
+        </section>
+
+        {/* Footer */}
+        <footer className="footer">
+          <span className="lockup">
+            <Logomark size={24} />
+            <Lettermark height={16} />
+          </span>
+          <span>
+            <a href="#privacy">Privacy</a> · <a href="#terms">Terms</a> ·{" "}
+            <a href="mailto:support@loam.ing">support@loam.ing</a>
+          </span>
+          <span>© 2026 Loam. Your data belongs to you.</span>
+        </footer>
+      </div>
+    </div>
+  );
+}
