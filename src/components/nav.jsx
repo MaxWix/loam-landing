@@ -25,8 +25,13 @@ export function SiteFooter() {
       </span> */}
       <div className="footer-row">
         <span>
-          <a href="/about">About</a> · <a href="#privacy">Privacy</a> ·{" "}
-          <a href="#terms">Terms</a>
+          <a href="loam.ing/privacy" target="_blank">
+            Privacy
+          </a>{" "}
+          ·{" "}
+          <a href="loam.ing/terms" target="_blank">
+            Terms
+          </a>
         </span>
       </div>
     </footer>
